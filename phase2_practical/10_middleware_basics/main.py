@@ -39,8 +39,19 @@ def get_weather(city: str) -> str:
 
 # ============================================================================
 # 示例 1：最简单的中间件
+"""
+  关键规则
+
+  1. 必须继承 AgentMiddleware ← 这个固定
+  2. 方法名固定 (before_model, after_model) ← 这个固定
+  3. 类名随意 ← 这个不固定
+
+  LangGraph 只看：
+  - 是否继承 AgentMiddleware？
+  - 是否有 before_model / after_model 方法？
+  """
 # ============================================================================
-class LoggingMiddleware(AgentMiddleware):
+class LoggingMiddleware(AgentMiddleware): # ✅ 类名随意
     """
     日志中间件 - 记录每次模型调用
 
@@ -95,34 +106,35 @@ class CallCounterMiddleware(AgentMiddleware):
     """
     计数中间件 - 统计模型调用次数
 
-    after_model 返回字典来更新状态
+    在中间件内部维护计数器（简单版本）
     """
+
+    def __init__(self):
+        super().__init__()
+        self.count = 0  # 简单计数器
 
     def after_model(self, state, runtime):
         """模型响应后，增加计数"""
-        current_count = state.get("model_call_count", 0)
-        new_count = current_count + 1
-        print(f"\n[计数器] 模型调用次数: {new_count}")
-
-        # 返回字典来更新状态
-        return {"model_call_count": new_count}
+        self.count += 1
+        print(f"\n[计数器] 模型调用次数: {self.count}")
+        return None  # 不修改 state
 
 
 def example_2_state_modification():
     """
-    示例2：修改状态 - 计数器
+    示例2：中间件内部状态 - 计数器
 
-    展示如何通过返回字典来更新 Agent 状态
+    展示如何在中间件内部维护状态（不依赖 Agent state）
     """
     print("\n" + "="*70)
-    print("示例 2：修改状态 - 模型调用计数")
+    print("示例 2：中间件内部状态 - 模型调用计数")
     print("="*70)
 
     agent = create_agent(
         model=model,
         tools=[],
         middleware=[CallCounterMiddleware()],
-        checkpointer=InMemorySaver()  # 需要 checkpointer 来保存状态
+        checkpointer=InMemorySaver()
     )
 
     config = {"configurable": {"thread_id": "counter_test"}}
@@ -136,12 +148,10 @@ def example_2_state_modification():
     print("\n第三次调用:")
     response = agent.invoke({"messages": [{"role": "user", "content": "谢谢"}]}, config)
 
-    print(f"\n最终状态: model_call_count = {response.get('model_call_count', 0)}")
-
     print("\n关键点：")
-    print("  - after_model 返回字典 → 更新状态")
-    print("  - 需要 checkpointer 来持久化自定义状态")
-    print("  - 状态会在多次调用间保留")
+    print("  - 中间件内部维护计数器（self.count）")
+    print("  - 不依赖 Agent state（更可靠）")
+    print("  - 返回 None 表示不修改 Agent 状态")
 
 
 # ============================================================================
@@ -152,19 +162,23 @@ class MessageTrimmerMiddleware(AgentMiddleware):
     消息修剪中间件 - 限制消息数量
 
     before_model 修改消息列表
+    注意：需要配合无 checkpointer 使用，否则历史会被恢复
     """
 
     def __init__(self, max_messages=5):
         super().__init__()
         self.max_messages = max_messages
+        self.trimmed_count = 0  # 统计修剪次数
 
     def before_model(self, state, runtime):
         """模型调用前，修剪消息"""
         messages = state.get('messages', [])
 
         if len(messages) > self.max_messages:
+            # 保留最近的 N 条消息
             trimmed_messages = messages[-self.max_messages:]
-            print(f"\n[修剪] 消息从 {len(messages)} 条减少到 {len(trimmed_messages)} 条")
+            self.trimmed_count += 1
+            print(f"\n[修剪] 消息从 {len(messages)} 条减少到 {len(trimmed_messages)} 条 (第{self.trimmed_count}次修剪)")
             return {"messages": trimmed_messages}
 
         return None
@@ -175,33 +189,53 @@ def example_3_message_trimming():
     示例3：消息修剪 - 防止消息过多
 
     展示如何在调用前修改消息列表
+    重点：手动累积消息，观察修剪效果
     """
     print("\n" + "="*70)
     print("示例 3：消息修剪 - 限制消息数量")
     print("="*70)
 
+    print("\n[说明] 不使用 checkpointer，手动管理消息历史\n")
+
+    middleware = MessageTrimmerMiddleware(max_messages=4)  # 最多保留 4 条
     agent = create_agent(
         model=model,
         tools=[],
-        middleware=[MessageTrimmerMiddleware(max_messages=3)],  # 最多保留 3 条
-        checkpointer=InMemorySaver()
+        middleware=[middleware]
+        # 不使用 checkpointer
     )
 
-    config = {"configurable": {"thread_id": "trim_test"}}
-
-    # 连续发送多条消息
-    for i in range(5):
+    # 手动管理消息历史
+    messages = []
+    for i in range(6):
         print(f"\n--- 第 {i+1} 次对话 ---")
-        response = agent.invoke(
-            {"messages": [{"role": "user", "content": f"消息{i+1}"}]},
-            config
-        )
-        print(f"总消息数: {len(response['messages'])}")
+
+        # 新增用户消息
+        new_msg = {"role": "user", "content": f"消息{i+1}：简短回复"}
+        messages.append(new_msg)
+
+        print(f"调用前消息数: {len(messages)}")
+
+        # 调用 agent（middleware会修剪）
+        response = agent.invoke({"messages": messages})
+
+        # 获取完整对话（包含AI响应）
+        messages = response['messages']
+
+        print(f"调用后消息数: {len(messages)}")
+        if len(messages) <= 4:
+            print(f"消息列表: {[m.content[:15] for m in messages]}")
+
+    print(f"\n修剪统计: 共修剪了 {middleware.trimmed_count} 次")
 
     print("\n关键点：")
-    print("  - before_model 可以修改消息列表")
-    print("  - 返回 {'messages': [...]} 替换原消息")
-    print("  - 防止消息无限增长")
+    print("  - before_model 在传给模型前修剪消息")
+    print("  - max_messages=4 限制发送给模型的消息数")
+    print("  - 但返回的 response 会包含新生成的消息")
+    print("  - 不使用 checkpointer 避免历史恢复")
+    print("\n生产建议：")
+    print("  - 简单修剪用这种方式")
+    print("  - 复杂场景用 SummarizationMiddleware（第8章）")
 
 
 # ============================================================================
@@ -337,38 +371,39 @@ class MaxCallsMiddleware(AgentMiddleware):
     """
     最大调用限制中间件
 
-    使用 jump_to 控制流程
+    通过抛出异常来阻止模型调用（更可靠的方式）
     """
 
     def __init__(self, max_calls=3):
         super().__init__()
         self.max_calls = max_calls
+        self.count = 0  # 简单计数器
 
     def before_model(self, state, runtime):
-        """检查调用次数，超过限制则直接结束"""
-        count = state.get("model_call_count", 0)
-
-        if count >= self.max_calls:
+        """检查调用次数，超过限制则抛出异常"""
+        if self.count >= self.max_calls:
             print(f"\n[限制] 已达到最大调用次数 {self.max_calls}，停止调用")
-            # 返回 jump_to 跳转到结束
-            return {"jump_to": "__end__"}
+            # 抛出自定义异常来阻止继续执行
+            raise ValueError(f"已达到最大调用次数限制: {self.max_calls}")
 
+        print(f"[限制] 当前调用次数: {self.count}/{self.max_calls}")
         return None
 
     def after_model(self, state, runtime):
         """增加计数"""
-        count = state.get("model_call_count", 0)
-        return {"model_call_count": count + 1}
+        self.count += 1
+        print("次数+1")
+        return None
 
 
 def example_6_conditional_jump():
     """
-    示例6：条件跳转 - 限制调用次数
+    示例6：调用限制 - 通过异常阻止调用
 
-    展示如何使用 jump_to 控制流程
+    展示如何使用异常来阻止模型调用（比 jump_to 更可靠）
     """
     print("\n" + "="*70)
-    print("示例 6：条件跳转 - 最大调用限制")
+    print("示例 6：调用限制 - 最大调用次数")
     print("="*70)
 
     agent = create_agent(
@@ -388,14 +423,20 @@ def example_6_conditional_jump():
                 config
             )
             if response.get('messages'):
-                print(f"响应: {response['messages'][-1].content[:50]}")
+                print(f"响应: {response['messages'][-1].content[:50]}...")
+        except ValueError as e:
+            print(f"[已阻止] {e}")
         except Exception as e:
             print(f"调用失败: {e}")
 
     print("\n关键点：")
-    print("  - jump_to 可以跳过正常流程")
-    print("  - '__end__' 表示直接结束")
+    print("  - before_model 中抛出异常可以阻止模型调用")
+    print("  - 比 jump_to 更可靠（在 LangChain 1.0 中）")
+    print("  - 中间件内部维护计数（self.count）")
     print("  - 用于实现熔断、限流等逻辑")
+    print("\n注意：")
+    print("  - jump_to 在 middleware 中可能不按预期工作")
+    print("  - 推荐用异常来实现流程控制")
 
 
 # ============================================================================
@@ -457,17 +498,17 @@ def main():
     print("="*70)
 
     try:
-        example_1_basic_middleware()
-        input("\n按 Enter 继续...")
+        # example_1_basic_middleware()
+        # input("\n按 Enter 继续...")
 
-        example_2_state_modification()
-        input("\n按 Enter 继续...")
+        # example_2_state_modification()
+        # input("\n按 Enter 继续...")
 
-        example_3_message_trimming()
-        input("\n按 Enter 继续...")
+        # example_3_message_trimming()
+        # input("\n按 Enter 继续...")
 
-        example_4_output_validation()
-        input("\n按 Enter 继续...")
+        # example_4_output_validation()
+        # input("\n按 Enter 继续...")
 
         example_5_multiple_middleware()
         input("\n按 Enter 继续...")
@@ -486,8 +527,9 @@ def main():
         print("  3. after_model - 模型响应后执行")
         print("  4. 返回 None - 不修改状态")
         print("  5. 返回 dict - 更新状态")
-        print("  6. 返回 {'jump_to': '...'} - 控制流程")
+        print("  6. 抛出异常 - 阻止执行（流程控制）")
         print("  7. 执行顺序：before 正序，after 逆序")
+        print("  8. 推荐：在中间件内部维护状态（self.xxx）更可靠")
         print("\n下一步：")
         print("  11_structured_output - 结构化输出")
 
