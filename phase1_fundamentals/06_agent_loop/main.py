@@ -40,9 +40,9 @@ def example_1_understand_loop():
 
     关键：response['messages'] 包含完整的对话历史
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("示例 1：Agent 执行循环详解")
-    print("="*70)
+    print("=" * 70)
 
     agent = create_agent(
         model=model,
@@ -56,10 +56,11 @@ def example_1_understand_loop():
 
     print("\n完整消息历史：")
     for i, msg in enumerate(response['messages'], 1):
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"消息 {i}: {msg.__class__.__name__}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
+        # 检查消息对象是否具有content属性且该属性不为空
         if hasattr(msg, 'content') and msg.content:
             print(f"内容: {msg.content}")
 
@@ -95,9 +96,9 @@ def example_2_streaming():
 
     使用 .stream() 方法
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("示例 2：流式输出")
-    print("="*70)
+    print("=" * 70)
 
     agent = create_agent(
         model=model,
@@ -110,17 +111,42 @@ def example_2_streaming():
 
     # 使用 stream 方法
     for chunk in agent.stream({
-        "messages": [{"role": "user", "content": "北京天气如何？"}]
+        "messages": [{"role": "user", "content": "北京天气如何？然后计算 10 加 20"}]
     }):
+        print(chunk)
+        print('*'*40)
         # chunk 是字典，包含更新的状态
-        if 'messages' in chunk:
-            # 获取最新的消息
-            latest_msg = chunk['messages'][-1]
+        if 'model' in chunk and 'messages' in chunk['model']:
+            latest_msg = chunk['model']['messages'][-1]
+            print(latest_msg.content)
 
-            # 如果是 AI 的最终回答
-            if hasattr(latest_msg, 'content') and latest_msg.content:
-                if not hasattr(latest_msg, 'tool_calls') or not latest_msg.tool_calls:
-                    print(f"\n最终回答: {latest_msg.content}")
+        elif 'tools' in chunk and 'messages' in chunk['tools']:
+            latest_msg = chunk['tools']['messages'][-1]
+
+            # 处理最新消息
+            print(latest_msg.content)
+            # # 如果是 AI 的最终回答
+            # if hasattr(latest_msg, 'content') and latest_msg.content:
+            #     if not hasattr(latest_msg, 'tool_calls') or not latest_msg.tool_calls:
+            #         print(f"\n最终回答: {latest_msg.content}")
+    # for chunk in agent.stream({
+    #     "messages": [{"role": "user", "content": "北京天气如何？然后计算 10 加 20"}]
+    # }):
+    #     if 'messages' in chunk:
+    #         latest_msg = chunk['messages'][-1]
+    #         msg_type = type(latest_msg).__name__
+    #
+    #         # 处理不同类型的message
+    #         if msg_type == "AIMessage":
+    #             if hasattr(latest_msg, 'tool_calls') and latest_msg.tool_calls:
+    #                 # 工具调用阶段
+    #                 print("AI正在调用工具...")
+    #             elif latest_msg.content:
+    #                 # 最终回答阶段
+    #                 print(f"最终回答: {latest_msg.content}")
+    #         elif msg_type == "ToolMessage":
+    #             # 工具执行结果
+    #             print(f"工具 {latest_msg.name} 执行结果: {latest_msg.content}")
 
     print("\n关键点：")
     print("  - stream() 返回生成器，逐步返回结果")
@@ -137,9 +163,9 @@ def example_3_multi_step():
 
     理解复杂任务的执行过程
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("示例 3：多步骤执行")
-    print("="*70)
+    print("=" * 70)
 
     agent = create_agent(
         model=model,
@@ -159,6 +185,7 @@ def example_3_multi_step():
             tool_calls_count += len(msg.tool_calls)
 
     print(f"\n工具调用次数: {tool_calls_count}")
+    print(f"最终答案: {response['messages']}")
     print(f"最终答案: {response['messages'][-1].content}")
 
     print("\n关键点：")
@@ -176,9 +203,9 @@ def example_4_inspect_state():
 
     使用 stream 并检查每个 chunk
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("示例 4：查看中间状态")
-    print("="*70)
+    print("=" * 70)
 
     agent = create_agent(
         model=model,
@@ -192,18 +219,27 @@ def example_4_inspect_state():
     for chunk in agent.stream({
         "messages": [{"role": "user", "content": "100 除以 5 等于多少？"}]
     }):
+        # print(chunk)
         step += 1
         print(f"\n步骤 {step}:")
 
-        if 'messages' in chunk:
-            latest = chunk['messages'][-1]
-            msg_type = latest.__class__.__name__
-            print(f"  类型: {msg_type}")
+        latest = None
+        # if 'messages' in chunk:
+        if 'model' in chunk:
+            latest = chunk['model']['messages']
+            print(latest)
+        elif 'tools' in chunk:
+            latest = chunk['tools']['messages']
+            print(latest)
 
-            if hasattr(latest, 'tool_calls') and latest.tool_calls:
-                print(f"  工具调用: {latest.tool_calls[0]['name']}")
-            elif hasattr(latest, 'content') and latest.content:
-                print(f"  内容: {latest.content[:50]}...")  # 只显示前50个字符
+
+        msg_type = latest.__class__.__name__
+        print(f"  类型: {msg_type}")
+
+        if hasattr(latest, 'tool_calls') and latest.tool_calls:
+            print(f"  工具调用: {latest.tool_calls[0]['name']}")
+        elif hasattr(latest, 'content') and latest.content:
+            print(f"  内容: {latest.content[:50]}...")  # 只显示前50个字符
 
     print("\n关键点：")
     print("  - stream 让你看到每个步骤")
@@ -220,9 +256,9 @@ def example_5_message_types():
 
     Agent 执行循环中的消息类型
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("示例 5：消息类型详解")
-    print("="*70)
+    print("=" * 70)
 
     agent = create_agent(
         model=model,
@@ -271,9 +307,9 @@ def example_6_best_practices():
     """
     示例6：使用执行循环的最佳实践
     """
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("示例 6：执行循环最佳实践")
-    print("="*70)
+    print("=" * 70)
 
     print("""
 最佳实践：
@@ -332,9 +368,9 @@ def example_6_best_practices():
 # 主程序
 # ============================================================================
 def main():
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print(" LangChain 1.0 - Agent 执行循环")
-    print("="*70)
+    print("=" * 70)
 
     try:
         example_1_understand_loop()
@@ -354,9 +390,9 @@ def main():
 
         example_6_best_practices()
 
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print(" 完成！")
-        print("="*70)
+        print("=" * 70)
         print("\n核心要点：")
         print("  Agent 执行循环：问题 → 工具调用 → 结果 → 答案")
         print("  messages 记录完整历史")
@@ -372,8 +408,12 @@ def main():
     except Exception as e:
         print(f"\n错误: {e}")
         import traceback
+        # 打印异常的完整堆栈跟踪信息到标准错误输出
+        # 此函数会输出当前捕获的异常的详细信息，包括异常类型、异常消息以及完整的调用堆栈
+        # 通常在except块中使用，用于调试和记录错误信息
         traceback.print_exc()
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    example_4_inspect_state()

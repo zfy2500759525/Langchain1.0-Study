@@ -60,6 +60,7 @@ def example_1_simple_tool():
         from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    print("\n工具全部参数:", get_current_time)
     print("\n工具名称:", get_current_time.name)
     print("工具描述:", get_current_time.description)
     print("工具参数:", get_current_time.args)
@@ -90,6 +91,7 @@ def example_2_tool_with_params():
     print("="*70)
 
     print("\n查看天气工具的信息：")
+    print(f"全部描述: {get_weather}")
     print(f"名称: {get_weather.name}")
     print(f"描述: {get_weather.description}")
     print(f"参数: {get_weather.args}")
@@ -194,6 +196,7 @@ def example_5_bind_tools():
     print("\n测试：AI 是否会调用天气工具？")
     response = model_with_tools.invoke("北京今天天气怎么样？")
 
+    print(f'response->{response}')
     # 检查模型是否要求调用工具
     if response.tool_calls:
         print(f"\n✅ AI 决定使用工具！")
@@ -297,4 +300,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    # example_1_simple_tool()
+    # example_2_tool_with_params()
+    example_5_bind_tools()

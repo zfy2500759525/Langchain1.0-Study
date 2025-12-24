@@ -318,7 +318,7 @@ def example_7_multiple_models():
     # Groq 上可用的不同模型
     models_to_test = [
         "groq:llama-3.3-70b-versatile",
-        "groq:mixtral-8x7b-32768",
+        "moonshotai:kimi-k2-instruct-0905",
     ]
 
     prompt = "用一句话解释什么是机器学习。"
